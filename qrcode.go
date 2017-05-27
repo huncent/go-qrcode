@@ -41,6 +41,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -261,6 +262,55 @@ func (q *QRCode) Image(size int) image.Image {
 	return img
 }
 
+// size is both the width and height in pixels.
+func (q *QRCode) ImageWithBorderMaxSize(size int, borderMaxSize int) image.Image {
+	// Minimum pixels (both width and height) required.
+	realSize := q.symbol.size - q.symbol.quietZoneSize*2
+
+	// Actual pixels available to draw the symbol. Automatically increase the
+	// image size if it's not large enough.
+	if size < realSize {
+		size = realSize
+	}
+	if size%realSize == 0 {
+		size = size
+	} else {
+		size = size + realSize - size%realSize
+	}
+
+	// Size of each module drawn.
+	pixelsPerModule := size / realSize
+	size += 2 * borderMaxSize
+	// Center the symbol within the image.
+	offset := borderMaxSize //(size - realSize*pixelsPerModule) / 2
+
+	rect := image.Rectangle{Min: image.Point{0, 0}, Max: image.Point{size, size}}
+	img := image.NewRGBA(rect)
+
+	for i := 0; i < size; i++ {
+		for j := 0; j < size; j++ {
+			img.Set(i, j, q.BackgroundColor)
+		}
+	}
+
+	bitmap := q.symbol.bitmap()
+	for y, row := range bitmap {
+		for x, v := range row {
+			if v {
+				startX := (x-q.symbol.quietZoneSize)*pixelsPerModule + offset
+				startY := (y-q.symbol.quietZoneSize)*pixelsPerModule + offset
+				for i := startX; i < startX+pixelsPerModule; i++ {
+					for j := startY; j < startY+pixelsPerModule; j++ {
+						img.Set(i, j, q.ForegroundColor)
+					}
+				}
+			}
+		}
+	}
+
+	return img
+}
+
 // PNG returns the QR Code as a PNG image.
 //
 // size is both the image width and height in pixels. If size is too small then
@@ -276,6 +326,22 @@ func (q *QRCode) PNG(size int) ([]byte, error) {
 	}
 
 	return b.Bytes(), nil
+}
+
+// Write writes the QR Code as a PNG image to io.Writer.
+//
+// size is both the image width and height in pixels. If size is too small then
+// a larger image is silently written.
+func (q *QRCode) Write(size int, out io.Writer) error {
+	var png []byte
+
+	png, err := q.PNG(size)
+
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(png)
+	return err
 }
 
 // WriteFile writes the QR Code as a PNG image to the specified file.
